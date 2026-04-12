@@ -7,6 +7,7 @@ class NodeBase(SQLModel):
     hostname: str
     address: str = ""  # IP or FQDN; empty means same as hostname
     role: str = "worker"  # control-plane | worker
+    os_family: str = "debian"  # debian | redhat
     ssh_user: str = "root"
     ssh_port: int = 22
     ssh_auth: str = "agent"  # password | key | agent
