@@ -1,94 +1,215 @@
 # cloud-ictneo · Command Console
 
-Futuristic sci-fi dashboard that turns the `cloud-ictneo` installer into a
-multi-project Kubernetes generator: create / list / delete projects, pick a
-Kubernetes version, toggle addons, choose a cert provider, forge raw K8s
-resources, and export a full Helm chart with `values-dev.yaml`,
-`values-test.yaml` and `values-prod.yaml`.
+Futuristic sci-fi dashboard on top of `cloud-ictneo` that lets you run
+multiple Kubernetes projects from one place: declare target servers,
+spin up local test clusters, manage namespaces, install Helm charts from
+any upstream repo, explore running resources, and exec into pods or
+into the servers themselves.
 
-## Stack
+## Install
 
-| Layer    | Tech                                           |
-| -------- | ---------------------------------------------- |
-| Backend  | FastAPI, SQLModel, SQLite, PyYAML              |
-| Frontend | React + Vite + TypeScript, Framer Motion       |
-| Local K8s| [kind](https://kind.sigs.k8s.io) over Docker   |
+### Prerequisites
 
-The backend lives in [backend/](backend/), the frontend in [frontend/](frontend/).
+| Tool             | Required for                    | Install                                   |
+| ---------------- | ------------------------------- | ----------------------------------------- |
+| Python 3.10+     | backend                         | `scoop install python` (tested on 3.14)   |
+| Node.js 18+      | frontend                        | `scoop install nodejs-lts`                |
+| Docker Desktop   | local test clusters             | <https://www.docker.com/products/docker-desktop/> |
+| `kind`           | local test clusters             | `scoop install kind` (v0.31+)             |
+| `kubectl`        | Resource Explorer + Helm Manager| `scoop install kubectl`                   |
+| `helm`           | Helm Manager + Helm Builder     | `scoop install helm`                      |
 
-## Features
+The three CLIs (`kind`, `kubectl`, `helm`) must be on `$PATH` for the
+console to shell out to them. Docker Desktop must be running before you
+try to provision a cluster.
 
-- **Projects** — CRUD from a sci-fi form. Each project holds its K8s version,
-  cert provider, domain, and enabled addons.
-- **Addons Matrix** — all addons from [../add-ons/](../add-ons/) exposed as
-  toggleable tiles grouped by category (security, network, storage, gitops,
-  registry, devops, iam, access, observability, data).
-- **Cert Provider** — pick `Let's Encrypt` (ACME) or `Cloudflare Origin CA`.
-- **K8s Versions** — 1.29 → 1.34 selectable per project.
-- **Resource Forge** — generate Deployment, StatefulSet, DaemonSet, Service,
-  Ingress, ConfigMap, Secret, PVC, Job, CronJob, HPA, NetworkPolicy,
-  ServiceAccount, Role, RoleBinding. Copy to clipboard.
-- **Helm Builder** — generates a complete chart (Chart.yaml, templates,
-  \_helpers.tpl, values.yaml + dev/test/prod overrides) and ships it as a
-  downloadable `.zip`.
-- **Cluster Ops** — provisions a local `kind` cluster per project using the
-  selected K8s version, stores the cluster name on the project, and lets you
-  tear it down again. Falls back gracefully when Docker / kind are offline.
-
-## Run
+### One-shot start
 
 ```bash
-# from the repo root
 cd console
 ./start.sh
 ```
 
-Then open <http://127.0.0.1:5173/>.
+`start.sh` creates the Python venv, installs backend deps (with the Python
+3.14 compatibility flag PyO3 needs), installs frontend deps, then launches:
+
+- backend: <http://127.0.0.1:8765>
+- frontend: <http://127.0.0.1:5173>
+
+Open the frontend URL in a browser.
 
 ### Manual
 
 ```bash
 # backend
-cd backend
+cd console/backend
 python -m venv .venv
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 .venv/Scripts/python -m pip install -r requirements.txt
 .venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 
 # frontend (separate shell)
-cd frontend
+cd console/frontend
 npm install
 npm run dev
 ```
 
-## Requirements
+## Usage
 
-- Python 3.10+ (tested with 3.14 — requires `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`)
-- Node.js 18+
-- Docker Desktop (optional — for the "Provision Kind Cluster" feature)
-- `kind` in `$PATH` (optional — same reason)
+The sidebar drives everything. Pages are ordered top-to-bottom along the
+typical provisioning flow.
+
+### 1. Projects
+
+Create and select a project. Each project holds:
+
+- a **K8s version** (1.31..1.35, matched to the kind node images shipped
+  by kind v0.31)
+- a **cert provider** (`letsencrypt` or `cloudflare` origin CA)
+- a **domain**
+- an **addons matrix** (~16 addons, organised by category)
+- a **target nodes** list (see below)
+- a **Helm releases** list (see below)
+
+Projects are stored in SQLite under `console/backend/data/console.db`.
+Delete the file to reset everything.
+
+#### Target Nodes
+
+Once a project is selected, a **Target Nodes** panel appears below the
+project fleet. Each node records:
+
+| Field       | Values                                                                |
+| ----------- | --------------------------------------------------------------------- |
+| hostname    | unique within the project                                             |
+| address     | IP or FQDN (blank = same as hostname)                                 |
+| role        | `control-plane` or `worker`                                           |
+| os_family   | `debian` (Ubuntu / Debian) or `redhat` (RHEL / Rocky / Alma / CentOS) |
+| ssh_user    | default `root`                                                        |
+| ssh_port    | default `22`                                                          |
+| ssh_auth    | `agent` (pre-configured), `password`, or `key`                        |
+| labels      | free-form comma-separated                                             |
+
+**SSH auth modes**
+
+- **agent** — no credentials are stored. The console uses the
+  `ssh-agent` / `~/.ssh/config` of the host it runs on. Use this when
+  you already have passwordless SSH set up.
+- **password** — stored in SQLite, **redacted to `***` on every read**
+  through the API. The raw value is only used to open the SSH connection.
+- **key** — path to a private key file on the console host. Ed25519,
+  ECDSA, and RSA are auto-detected.
+
+Each node tile has two actions:
+
+- **⤓ BOOTSTRAP** downloads a generated `bootstrap-<hostname>.sh`
+  idempotent shell script that installs containerd + kubelet / kubeadm /
+  kubectl pinned to the project's K8s version. It picks `apt` for debian
+  targets and `dnf` + **EPEL** + docker-ce + kubernetes repos for redhat
+  targets, tunes kernel modules / sysctl / swap, switches SELinux to
+  permissive on RHEL, and opens the control-plane firewall ports if
+  firewalld is active. Run it on the node (as a user with sudo).
+- **▾ TERMINAL** expands an inline one-shot command runner. Type any
+  shell command, hit Enter, and it is SSH-executed on the node using
+  the auth mode you configured. Output + exit code are shown below.
+  This is deliberately **not** an interactive PTY — for a real shell,
+  use your own terminal.
+
+### 2. Cluster
+
+Configure the K8s version, cert provider, domain, and addons, then
+provision a local `kind` cluster with one click. Once provisioned, a
+**Namespaces** panel appears below the launch sequence: list, create
+(RFC 1123 validated), and delete namespaces in that cluster. The four
+system namespaces (`default`, `kube-system`, `kube-public`,
+`kube-node-lease`) are refused by name.
+
+### 3. Resource Explorer
+
+Once a project has an attached cluster, pick a namespace and a kind
+(16 kinds supported: deployment, statefulset, daemonset, replicaset,
+pod, service, ingress, configmap, secret, pvc, job, cronjob, hpa,
+networkpolicy, serviceaccount, role, rolebinding) and see the live
+list.
+
+Per-item actions:
+
+- click a row to **describe** it (full YAML on the right)
+- **+ / −** scale deployments up/down one replica at a time (JSON merge patch)
+- **DELETE** removes the resource (`kubectl delete --wait=false`)
+- on pods, a one-shot **Exec** runner lets you type a command and see
+  stdout + stderr + exit code
+
+### 4. Resource Forge
+
+Generate a single raw Kubernetes manifest from a form. Fifteen kinds
+are supported. Copy-to-clipboard for pasting into `kubectl apply`.
+Use this for quick one-off manifests.
+
+### 5. Helm Builder
+
+Generate a **brand-new Helm chart** from scratch for a project.
+Produces `Chart.yaml`, `_helpers.tpl`, `deployment.yaml`, `service.yaml`,
+`ingress.yaml`, `hpa.yaml`, `serviceaccount.yaml`, `configmap.yaml`,
+plus `values.yaml` and per-env overrides `values-dev.yaml`,
+`values-test.yaml`, `values-prod.yaml`. Inspect the tree in the browser
+or download the whole chart as a `.zip`.
+
+### 6. Helm Manager
+
+Install and manage Helm releases from **any upstream repo** (bitnami,
+jetstack, prometheus-community, your private registry, ...). Flow:
+
+1. **Add a repo** (name + URL). The console runs `helm repo add` and
+   `helm repo update` for you.
+2. **Fill a draft release**: name, repo, chart, version, cluster,
+   namespace. The cluster defaults to the one attached to the selected
+   project.
+3. Click **⤓ Load default values** to fetch the chart's `values.yaml`
+   into the textarea.
+4. Edit the textarea to override what you want (supports flat and
+   nested YAML — `key: value` and 2-space indented maps).
+5. **▸ Save Release** stores the draft in SQLite.
+6. **▸ DEPLOY / UPGRADE** runs `helm upgrade --install` with your
+   override against the configured context/namespace. The same button
+   handles the initial install and later upgrades — the backend always
+   uses `--install` so it's idempotent.
+7. **⏹ UNINSTALL** runs `helm uninstall`.
+8. **DELETE** removes the release record (does not uninstall from the
+   cluster — use UNINSTALL first).
+
+Statuses flow `draft → deployed → uninstalled`, or `failed` if the last
+deploy/upgrade errored.
 
 ## API
 
-| Method   | Path                            | Notes                              |
-| -------- | ------------------------------- | ---------------------------------- |
-| GET      | `/api/health`                   | liveness                           |
-| GET      | `/api/catalog/k8s-versions`     | available K8s versions             |
-| GET      | `/api/catalog/cert-providers`   | letsencrypt · cloudflare           |
-| GET      | `/api/catalog/addons`           | full addons catalog                |
-| GET      | `/api/catalog/resources`        | resource kinds supported by Forge  |
-| GET      | `/api/projects`                 | list                               |
-| POST     | `/api/projects`                 | create                             |
-| GET      | `/api/projects/{id}`            | read                               |
-| PATCH    | `/api/projects/{id}`            | update                             |
-| DELETE   | `/api/projects/{id}`            | remove                             |
-| POST     | `/api/generate/helm/preview`    | returns map of filename → content  |
-| POST     | `/api/generate/helm/download`   | streams a chart `.zip`             |
-| POST     | `/api/generate/resource`        | returns one manifest as YAML       |
-| GET      | `/api/clusters/health`          | docker + kind availability         |
-| GET      | `/api/clusters`                 | list kind clusters                 |
-| POST     | `/api/clusters`                 | create kind cluster                |
-| DELETE   | `/api/clusters/{name}`          | delete kind cluster                |
+All endpoints live under `/api`. Full OpenAPI schema at
+<http://127.0.0.1:8765/docs>.
+
+| Area           | Routes                                                                 |
+| -------------- | ---------------------------------------------------------------------- |
+| Projects       | `GET/POST /projects`, `GET/PATCH/DELETE /projects/{id}`                |
+| Nodes          | `GET/POST /projects/{id}/nodes`, `DELETE /projects/{id}/nodes/{nid}`   |
+| Node bootstrap | `GET /projects/{id}/nodes/{nid}/bootstrap.sh`                          |
+| Node exec      | `POST /projects/{id}/nodes/{nid}/exec`                                 |
+| Catalog        | `/catalog/{k8s-versions,cert-providers,addons,resources}`              |
+| Clusters       | `/clusters` CRUD + `/clusters/health`                                  |
+| Namespaces     | `/clusters/{name}/namespaces` CRUD                                     |
+| Helm repos     | `GET/POST /helm/repos`, `POST /helm/values`, `POST /helm/chart`        |
+| Releases       | `/projects/{id}/releases`, `/releases/{id}{,/deploy,/uninstall,/status}` |
+| Generators     | `POST /generate/resource`, `POST /generate/helm/{preview,download}`    |
+| kubectl        | `GET /k8s/{cluster}/{ns}/{kind}[/{name}]`, `DELETE`, `.../patch`, `.../exec`, `.../logs` |
 
 ## Data
 
-SQLite file at `backend/data/console.db`. Delete it to reset all projects.
+SQLite file at `backend/data/console.db`. Forward-only column additions
+run on every startup from `app/db.py::_COLUMN_ADDITIONS` so the dev DB
+rolls forward without Alembic.
+
+## Security notes
+
+- SSH passwords are stored in SQLite **in clear text**. This is a local
+  dev dashboard, not a production secret store. Prefer `agent` or `key`
+  modes wherever possible.
+- Delete `backend/data/console.db` to wipe everything.
+- The backend binds to `127.0.0.1` by default — do not expose it without
+  adding auth in front.
