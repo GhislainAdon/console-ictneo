@@ -3,7 +3,7 @@
 Derived from the cloud-ictneo script.sh + add-ons/ directory.
 """
 
-K8S_VERSIONS = ["1.34", "1.33", "1.32", "1.31", "1.30", "1.29"]
+K8S_VERSIONS = ["1.35", "1.34", "1.33", "1.32", "1.31"]
 
 CERT_PROVIDERS = [
     {
