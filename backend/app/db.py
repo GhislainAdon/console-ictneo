@@ -13,7 +13,7 @@ engine = create_engine(
 
 
 def init_db() -> None:
-    from app.models import project  # noqa: F401
+    from app.models import project, node  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
 

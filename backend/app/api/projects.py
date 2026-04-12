@@ -1,8 +1,9 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from app.db import get_session
+from app.models.node import Node
 from app.models.project import (
     Project,
     ProjectCreate,
@@ -62,6 +63,7 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    session.exec(delete(Node).where(Node.project_id == project_id))
     session.delete(project)
     session.commit()
     return None
