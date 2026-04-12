@@ -2,7 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.api import catalog, clusters, generators, namespaces, nodes, projects
+from app.api import (
+    catalog,
+    clusters,
+    generators,
+    k8s,
+    namespaces,
+    nodes,
+    projects,
+    releases,
+)
 
 app = FastAPI(
     title="cloud-ictneo console API",
@@ -35,3 +44,5 @@ app.include_router(catalog.router)
 app.include_router(generators.router)
 app.include_router(clusters.router)
 app.include_router(namespaces.router)
+app.include_router(releases.router)
+app.include_router(k8s.router)
