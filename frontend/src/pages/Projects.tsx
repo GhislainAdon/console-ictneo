@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, type Project } from '../api/client'
 import { useSelected } from '../store/selected'
+import { NodesSection } from '../components/NodesSection'
 
 export function Projects() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -53,9 +54,8 @@ export function Projects() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid"
-      style={{ gridTemplateColumns: '1fr 1fr' }}
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="stack">
+    <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
       <div className="panel">
         <div className="panel-title">Create Project</div>
         <form onSubmit={submit} className="stack">
@@ -156,6 +156,8 @@ export function Projects() {
           )}
         </div>
       </div>
+    </div>
+    {project && <NodesSection key={project.id} projectId={project.id} />}
     </motion.div>
   )
 }

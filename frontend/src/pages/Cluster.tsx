@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api, type Addon, type CertProvider } from '../api/client'
 import { useSelected } from '../store/selected'
+import { NamespacesSection } from '../components/NamespacesSection'
 
 export function Cluster() {
   const { project, setProject } = useSelected()
@@ -165,6 +166,8 @@ export function Cluster() {
         {msg && <div className="badge success" style={{ marginTop: 12, padding: '6px 12px' }}>{msg}</div>}
         {err && <div className="error-banner" style={{ marginTop: 12 }}>{err}</div>}
       </div>
+
+      {project.cluster_name && <NamespacesSection cluster={project.cluster_name} />}
     </motion.div>
   )
 }

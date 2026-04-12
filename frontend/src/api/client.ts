@@ -54,6 +54,42 @@ export interface CertProvider {
   fields: string[]
 }
 
+export type SshAuth = 'agent' | 'password' | 'key'
+export type NodeRole = 'control-plane' | 'worker'
+
+export interface TargetNode {
+  id: number
+  project_id: number
+  hostname: string
+  address: string
+  role: NodeRole
+  ssh_user: string
+  ssh_port: number
+  ssh_auth: SshAuth
+  ssh_password: string | null
+  ssh_key_path: string | null
+  labels: string
+  created_at: string
+}
+
+export interface TargetNodeInput {
+  hostname: string
+  address?: string
+  role: NodeRole
+  ssh_user?: string
+  ssh_port?: number
+  ssh_auth: SshAuth
+  ssh_password?: string | null
+  ssh_key_path?: string | null
+  labels?: string
+}
+
+export interface Namespace {
+  name: string
+  status: string
+  created_at: string | null
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
 
@@ -103,5 +139,29 @@ export const api = {
       request<{ ok: boolean; stdout: string; stderr: string }>(`/clusters/${name}`, {
         method: 'DELETE',
       }),
+  },
+
+  nodes: {
+    list: (projectId: number) =>
+      request<TargetNode[]>(`/projects/${projectId}/nodes`),
+    create: (projectId: number, body: TargetNodeInput) =>
+      request<TargetNode>(`/projects/${projectId}/nodes`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    remove: (projectId: number, nodeId: number) =>
+      request<void>(`/projects/${projectId}/nodes/${nodeId}`, { method: 'DELETE' }),
+  },
+
+  namespaces: {
+    list: (cluster: string) =>
+      request<{ namespaces: Namespace[] }>(`/clusters/${cluster}/namespaces`),
+    create: (cluster: string, name: string) =>
+      request<{ name: string; status: string }>(
+        `/clusters/${cluster}/namespaces`,
+        { method: 'POST', body: JSON.stringify({ name }) }
+      ),
+    remove: (cluster: string, name: string) =>
+      request<void>(`/clusters/${cluster}/namespaces/${name}`, { method: 'DELETE' }),
   },
 }
