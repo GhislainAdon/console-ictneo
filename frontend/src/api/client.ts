@@ -56,6 +56,7 @@ export interface CertProvider {
 
 export type SshAuth = 'agent' | 'password' | 'key'
 export type NodeRole = 'control-plane' | 'worker'
+export type OsFamily = 'debian' | 'redhat'
 
 export interface TargetNode {
   id: number
@@ -63,6 +64,7 @@ export interface TargetNode {
   hostname: string
   address: string
   role: NodeRole
+  os_family: OsFamily
   ssh_user: string
   ssh_port: number
   ssh_auth: SshAuth
@@ -76,12 +78,54 @@ export interface TargetNodeInput {
   hostname: string
   address?: string
   role: NodeRole
+  os_family: OsFamily
   ssh_user?: string
   ssh_port?: number
   ssh_auth: SshAuth
   ssh_password?: string | null
   ssh_key_path?: string | null
   labels?: string
+}
+
+export interface HelmRepo {
+  name: string
+  url: string
+}
+
+export interface Release {
+  id: number
+  project_id: number
+  name: string
+  repo_name: string
+  repo_url: string
+  chart: string
+  version: string
+  cluster: string
+  namespace: string
+  values_override: Record<string, unknown>
+  status: string
+  last_deployed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReleaseInput {
+  name: string
+  repo_name: string
+  repo_url: string
+  chart: string
+  version?: string
+  cluster: string
+  namespace: string
+  values_override?: Record<string, unknown>
+}
+
+export interface K8sResource {
+  name: string
+  namespace: string
+  age: string | null
+  ready: string | null
+  labels: Record<string, string>
 }
 
 export interface Namespace {
@@ -151,6 +195,107 @@ export const api = {
       }),
     remove: (projectId: number, nodeId: number) =>
       request<void>(`/projects/${projectId}/nodes/${nodeId}`, { method: 'DELETE' }),
+    bootstrapUrl: (projectId: number, nodeId: number) =>
+      `/api/projects/${projectId}/nodes/${nodeId}/bootstrap.sh`,
+    exec: (projectId: number, nodeId: number, command: string) =>
+      request<{ ok: boolean; stdout: string; stderr: string; exit_code: number }>(
+        `/projects/${projectId}/nodes/${nodeId}/exec`,
+        { method: 'POST', body: JSON.stringify({ command }) }
+      ),
+  },
+
+  helm: {
+    repos: () => request<{ repos: HelmRepo[] }>('/helm/repos'),
+    addRepo: (name: string, url: string) =>
+      request<{ ok: boolean }>('/helm/repos', {
+        method: 'POST',
+        body: JSON.stringify({ name, url }),
+      }),
+    showValues: (repo_name: string, chart: string, version = '') =>
+      request<{ values_yaml: string }>('/helm/values', {
+        method: 'POST',
+        body: JSON.stringify({ repo_name, chart, version }),
+      }),
+    showChart: (repo_name: string, chart: string, version = '') =>
+      request<{ chart_yaml: string }>('/helm/chart', {
+        method: 'POST',
+        body: JSON.stringify({ repo_name, chart, version }),
+      }),
+  },
+
+  releases: {
+    listForProject: (projectId: number) =>
+      request<Release[]>(`/projects/${projectId}/releases`),
+    create: (projectId: number, body: ReleaseInput) =>
+      request<Release>(`/projects/${projectId}/releases`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (id: number, body: Partial<ReleaseInput>) =>
+      request<Release>(`/releases/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    remove: (id: number) =>
+      request<void>(`/releases/${id}`, { method: 'DELETE' }),
+    deploy: (id: number) =>
+      request<{ ok: boolean; stdout: string; stderr: string; release: Release }>(
+        `/releases/${id}/deploy`,
+        { method: 'POST' }
+      ),
+    uninstall: (id: number) =>
+      request<{ ok: boolean; stdout: string; stderr: string }>(
+        `/releases/${id}/uninstall`,
+        { method: 'POST' }
+      ),
+    status: (id: number) => request<Record<string, unknown>>(`/releases/${id}/status`),
+  },
+
+  k8s: {
+    kinds: (cluster: string) =>
+      request<{ kinds: string[] }>(`/k8s/${cluster}/kinds`),
+    list: (cluster: string, namespace: string, kind: string) =>
+      request<{ ok: boolean; items: K8sResource[]; kind: string }>(
+        `/k8s/${cluster}/${namespace}/${kind}`
+      ),
+    describe: (cluster: string, namespace: string, kind: string, name: string) =>
+      request<{ ok: boolean; yaml: string }>(
+        `/k8s/${cluster}/${namespace}/${kind}/${name}`
+      ),
+    delete: (cluster: string, namespace: string, kind: string, name: string) =>
+      request<{ ok: boolean; stdout: string }>(
+        `/k8s/${cluster}/${namespace}/${kind}/${name}`,
+        { method: 'DELETE' }
+      ),
+    patch: (
+      cluster: string,
+      namespace: string,
+      kind: string,
+      name: string,
+      patch: Record<string, unknown>
+    ) =>
+      request<{ ok: boolean; stdout: string }>(
+        `/k8s/${cluster}/${namespace}/${kind}/${name}/patch`,
+        { method: 'POST', body: JSON.stringify({ patch }) }
+      ),
+    exec: (
+      cluster: string,
+      namespace: string,
+      pod: string,
+      command: string,
+      container?: string
+    ) =>
+      request<{ ok: boolean; stdout: string; stderr: string; exit_code: number }>(
+        `/k8s/${cluster}/${namespace}/pod/${pod}/exec`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ command, container }),
+        }
+      ),
+    logs: (cluster: string, namespace: string, pod: string, tail = 200) =>
+      request<{ stdout: string }>(
+        `/k8s/${cluster}/${namespace}/pod/${pod}/logs?tail=${tail}`
+      ),
   },
 
   namespaces: {

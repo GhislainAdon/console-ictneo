@@ -5,6 +5,8 @@ import { Projects } from './pages/Projects'
 import { Cluster } from './pages/Cluster'
 import { ResourceForge } from './pages/ResourceForge'
 import { HelmBuilder } from './pages/HelmBuilder'
+import { HelmManager } from './pages/HelmManager'
+import { ResourceExplorer } from './pages/ResourceExplorer'
 
 export default function App() {
   return (
@@ -14,8 +16,10 @@ export default function App() {
           <Route path="/" element={<Overview />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/cluster" element={<Cluster />} />
+          <Route path="/explorer" element={<ResourceExplorer />} />
           <Route path="/resources" element={<ResourceForge />} />
           <Route path="/helm" element={<HelmBuilder />} />
+          <Route path="/helm-manager" element={<HelmManager />} />
         </Route>
       </Routes>
     </BrowserRouter>

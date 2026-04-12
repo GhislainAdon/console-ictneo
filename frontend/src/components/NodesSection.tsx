@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { api, type TargetNode, type SshAuth, type NodeRole } from '../api/client'
+import { api, type TargetNode, type SshAuth, type NodeRole, type OsFamily } from '../api/client'
 
 interface Props {
   projectId: number
@@ -10,6 +10,7 @@ interface FormState {
   hostname: string
   address: string
   role: NodeRole
+  os_family: OsFamily
   ssh_user: string
   ssh_port: string
   ssh_auth: SshAuth
@@ -22,6 +23,7 @@ const EMPTY: FormState = {
   hostname: '',
   address: '',
   role: 'worker',
+  os_family: 'debian',
   ssh_user: 'root',
   ssh_port: '22',
   ssh_auth: 'agent',
@@ -34,6 +36,10 @@ export function NodesSection({ projectId }: Props) {
   const [nodes, setNodes] = useState<TargetNode[]>([])
   const [form, setForm] = useState<FormState>(EMPTY)
   const [err, setErr] = useState<string | null>(null)
+  const [terminalFor, setTerminalFor] = useState<number | null>(null)
+  const [cmd, setCmd] = useState('uname -a')
+  const [execOut, setExecOut] = useState<string>('')
+  const [execBusy, setExecBusy] = useState(false)
 
   const refresh = () => api.nodes.list(projectId).then(setNodes).catch(() => setNodes([]))
 
@@ -49,6 +55,7 @@ export function NodesSection({ projectId }: Props) {
         hostname: form.hostname.trim(),
         address: form.address.trim(),
         role: form.role,
+        os_family: form.os_family,
         ssh_user: form.ssh_user.trim() || 'root',
         ssh_port: Number(form.ssh_port) || 22,
         ssh_auth: form.ssh_auth,
@@ -61,6 +68,24 @@ export function NodesSection({ projectId }: Props) {
       refresh()
     } catch (e) {
       setErr((e as Error).message)
+    }
+  }
+
+  const runCmd = async (nodeId: number) => {
+    setExecBusy(true)
+    setExecOut('')
+    try {
+      const res = await api.nodes.exec(projectId, nodeId, cmd)
+      setExecOut(
+        `$ ${cmd}\n` +
+          (res.stdout || '') +
+          (res.stderr ? `\n[stderr]\n${res.stderr}` : '') +
+          `\n[exit ${res.exit_code}]`
+      )
+    } catch (e) {
+      setExecOut(`error: ${(e as Error).message}`)
+    } finally {
+      setExecBusy(false)
     }
   }
 
@@ -106,12 +131,14 @@ export function NodesSection({ projectId }: Props) {
           </select>
         </div>
         <div>
-          <label>Labels</label>
-          <input
-            value={form.labels}
-            onChange={(e) => setForm({ ...form, labels: e.target.value })}
-            placeholder="zone=a,rack=42"
-          />
+          <label>OS Family</label>
+          <select
+            value={form.os_family}
+            onChange={(e) => setForm({ ...form, os_family: e.target.value as OsFamily })}
+          >
+            <option value="debian">debian (ubuntu / debian)</option>
+            <option value="redhat">redhat (rhel / rocky / alma)</option>
+          </select>
         </div>
 
         <div>
@@ -164,6 +191,15 @@ export function NodesSection({ projectId }: Props) {
         </div>
 
         <div style={{ gridColumn: '1 / -1' }}>
+          <label>Labels</label>
+          <input
+            value={form.labels}
+            onChange={(e) => setForm({ ...form, labels: e.target.value })}
+            placeholder="zone=a,rack=42"
+          />
+        </div>
+
+        <div style={{ gridColumn: '1 / -1' }}>
           {err && <div className="error-banner" style={{ marginBottom: 10 }}>{err}</div>}
           <button className="primary" type="submit">▸ Register Node</button>
         </div>
@@ -172,29 +208,77 @@ export function NodesSection({ projectId }: Props) {
       <div className="stack" style={{ gap: 8 }}>
         <AnimatePresence>
           {nodes.map((n) => (
-            <motion.div
-              key={n.id}
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              className="toggle on"
-              style={{ cursor: 'default' }}
-            >
-              <div className="dot" />
-              <div className="meta">
-                <h3>
-                  {n.hostname}
-                  <span className="badge" style={{ marginLeft: 10 }}>{n.role}</span>
-                  {n.labels && <span className="badge" style={{ marginLeft: 6 }}>{n.labels}</span>}
-                </h3>
-                <p>
-                  {n.ssh_user}@{n.address || n.hostname}:{n.ssh_port} · {authLabel(n)}
-                </p>
-              </div>
-              <button className="danger" onClick={() => remove(n.id)} style={{ padding: '6px 12px', fontSize: 10 }}>
-                Remove
-              </button>
-            </motion.div>
+            <div key={n.id}>
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="toggle on"
+                style={{ cursor: 'default' }}
+              >
+                <div className="dot" />
+                <div className="meta">
+                  <h3>
+                    {n.hostname}
+                    <span className="badge" style={{ marginLeft: 10 }}>{n.role}</span>
+                    <span className="badge" style={{ marginLeft: 6 }}>{n.os_family}</span>
+                    {n.labels && <span className="badge" style={{ marginLeft: 6 }}>{n.labels}</span>}
+                  </h3>
+                  <p>
+                    {n.ssh_user}@{n.address || n.hostname}:{n.ssh_port} · {authLabel(n)}
+                  </p>
+                </div>
+                <a
+                  href={api.nodes.bootstrapUrl(projectId, n.id)}
+                  download={`bootstrap-${n.hostname}.sh`}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <button type="button" style={{ padding: '6px 12px', fontSize: 10 }}>⤓ BOOTSTRAP</button>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setTerminalFor(terminalFor === n.id ? null : n.id)}
+                  style={{ padding: '6px 12px', fontSize: 10 }}
+                >
+                  {terminalFor === n.id ? '▴ TERMINAL' : '▾ TERMINAL'}
+                </button>
+                <button className="danger" onClick={() => remove(n.id)} style={{ padding: '6px 12px', fontSize: 10 }}>
+                  Remove
+                </button>
+              </motion.div>
+
+              {terminalFor === n.id && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  style={{ overflow: 'hidden', marginTop: 8 }}
+                >
+                  <div style={{ padding: 12, border: '1px dashed var(--panel-edge)', background: 'rgba(0,10,25,0.4)' }}>
+                    <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+                      <input
+                        value={cmd}
+                        onChange={(e) => setCmd(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') runCmd(n.id) }}
+                        placeholder="uname -a"
+                      />
+                      <button
+                        className="primary"
+                        type="button"
+                        disabled={execBusy || !cmd.trim()}
+                        onClick={() => runCmd(n.id)}
+                        style={{ padding: '10px 14px', fontSize: 11 }}
+                      >
+                        {execBusy ? '…' : '▸ RUN'}
+                      </button>
+                    </div>
+                    <pre className="yaml" style={{ maxHeight: 260, minHeight: 60 }}>
+                      {execOut || `# one-shot SSH to ${n.ssh_user}@${n.address || n.hostname} via ${n.ssh_auth}\n# press Enter or RUN to execute`}
+                    </pre>
+                  </div>
+                </motion.div>
+              )}
+            </div>
           ))}
         </AnimatePresence>
         {nodes.length === 0 && <p className="dim mono">No nodes declared yet.</p>}

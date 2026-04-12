@@ -6,8 +6,10 @@ const NAV = [
   { to: '/', label: 'Overview', icon: '◉' },
   { to: '/projects', label: 'Projects', icon: '▤' },
   { to: '/cluster', label: 'Cluster', icon: '⬢' },
+  { to: '/explorer', label: 'Resource Explorer', icon: '◎' },
   { to: '/resources', label: 'Resource Forge', icon: '◈' },
   { to: '/helm', label: 'Helm Builder', icon: '⎈' },
+  { to: '/helm-manager', label: 'Helm Manager', icon: '⌘' },
 ]
 
 export function Layout() {
