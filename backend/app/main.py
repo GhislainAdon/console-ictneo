@@ -1,5 +1,9 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
 from app.api import (
@@ -46,3 +50,9 @@ app.include_router(clusters.router)
 app.include_router(namespaces.router)
 app.include_router(releases.router)
 app.include_router(k8s.router)
+
+# Serve the built frontend in Docker mode. The dev flow (start.sh) leaves
+# CONSOLE_STATIC_DIR unset and keeps Vite on :5173.
+_static_dir = os.environ.get("CONSOLE_STATIC_DIR")
+if _static_dir and Path(_static_dir).is_dir():
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
