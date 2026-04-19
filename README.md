@@ -23,7 +23,7 @@ The three CLIs (`kind`, `kubectl`, `helm`) must be on `$PATH` for the
 console to shell out to them. Docker Desktop must be running before you
 try to provision a cluster.
 
-### One-shot start
+### One-shot start (host mode — full featured)
 
 ```bash
 cd console
@@ -36,7 +36,33 @@ cd console
 - backend: <http://127.0.0.1:8765>
 - frontend: <http://127.0.0.1:5173>
 
-Open the frontend URL in a browser.
+Open the frontend URL in a browser. Use this mode to provision local `kind`
+clusters from the UI.
+
+### Docker Desktop (pilot-only mode)
+
+```bash
+cd console
+./deploy.sh
+```
+
+One container serves both the backend and the built frontend at
+<http://127.0.0.1:8765>. The container does **not** ship `kind` or `docker`,
+so it cannot provision new local clusters — but it can register and pilot
+any external Kubernetes cluster (see [Piloting an existing
+cluster](#piloting-an-existing-cluster)).
+
+| Command | What it does |
+| --- | --- |
+| `./deploy.sh` or `./deploy.sh up` | Build + start the container |
+| `./deploy.sh logs` | Follow container logs |
+| `./deploy.sh ps` | Container status |
+| `./deploy.sh down` | Stop and remove the container |
+
+Persistence: SQLite and registered kubeconfigs live in `console/data/`.
+Delete that directory to reset everything.
+
+Prerequisite: Docker Desktop running. No other CLI required on the host.
 
 ### Manual
 
@@ -114,14 +140,57 @@ Each node tile has two actions:
   This is deliberately **not** an interactive PTY — for a real shell,
   use your own terminal.
 
-### 2. Cluster
+### 2. Clusters
 
-Configure the K8s version, cert provider, domain, and addons, then
-provision a local `kind` cluster with one click. Once provisioned, a
-**Namespaces** panel appears below the launch sequence: list, create
-(RFC 1123 validated), and delete namespaces in that cluster. The four
-system namespaces (`default`, `kube-system`, `kube-public`,
-`kube-node-lease`) are refused by name.
+Configure the K8s version, cert provider, domain, and addons, then either
+provision a local `kind` cluster with one click **or** register an existing
+external cluster (see [Piloting an existing
+cluster](#piloting-an-existing-cluster)). The page shows a unified table:
+one row per cluster with a `source` badge (`kind` or `external`), the
+detected K8s version, the API-server URL, and **Attach / Remove** actions.
+
+Once a cluster is attached to the selected project, a **Namespaces** panel
+appears below the launch sequence: list, create (RFC 1123 validated), and
+delete namespaces in that cluster. The four system namespaces
+(`default`, `kube-system`, `kube-public`, `kube-node-lease`) are refused
+by name.
+
+#### Piloting an existing cluster
+
+The console can manage any Kubernetes cluster it can reach over the
+network. Registration uses a one-shot ServiceAccount + ClusterRoleBinding
+created on the target cluster; no credentials leave the cluster admin's
+machine except a scoped bearer token.
+
+1. In the UI, click **+ Register External** on the Clusters page.
+2. Download `register-cluster.sh` from the drawer (or grab it from
+   [../scripts/register-cluster.sh](../scripts/register-cluster.sh)) and
+   hand it to someone with `cluster-admin` on the target cluster.
+3. They run it, picking the RBAC level they're comfortable granting:
+
+   ```bash
+   bash register-cluster.sh --role view    # read-only (default)
+   bash register-cluster.sh --role edit    # read/write on most kinds
+   bash register-cluster.sh --role admin   # cluster-admin
+   ```
+
+   The script creates namespace `cloud-ictneo-console`, ServiceAccount
+   `console-pilot`, a ClusterRoleBinding at the chosen level, and a
+   long-lived token Secret. It prints a single-line base64 blob.
+4. Copy that blob into the drawer's **Base64 payload** field, give the
+   cluster a display name, click **Register**.
+5. The backend writes a minimal kubeconfig to
+   `data/kubeconfigs/<name>.yaml` (mode `0600`), probes the cluster to
+   detect its K8s version, and stores the row.
+6. Optionally attach the new cluster to the current project — Resource
+   Explorer, Helm Manager, and Namespaces now target it.
+
+Revocation: on the target cluster, `kubectl delete sa console-pilot -n
+cloud-ictneo-console` (or the matching ClusterRoleBinding) cuts access.
+Re-running the script rotates the token.
+
+Reachability: the console must be able to hit the cluster's API-server
+directly. Behind NAT, use a VPN, Teleport, or an IP allowlist.
 
 ### 3. Resource Explorer
 
