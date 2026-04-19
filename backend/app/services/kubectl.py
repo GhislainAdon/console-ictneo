@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shlex
 
+from app.services.cluster_ctx import cluster_args
 from app.services.kind_manager import CommandResult, _run
 
 # Kinds the Resource Explorer knows how to list in a namespace.
@@ -34,12 +35,8 @@ LISTABLE_KINDS: list[str] = [
 ]
 
 
-def _ctx(cluster: str) -> str:
-    return cluster if cluster.startswith("kind-") else f"kind-{cluster}"
-
-
 def _base(cluster: str, namespace: str | None) -> list[str]:
-    cmd = ["kubectl", "--context", _ctx(cluster)]
+    cmd = ["kubectl", *cluster_args(cluster)]
     if namespace:
         cmd += ["-n", namespace]
     return cmd

@@ -91,8 +91,10 @@ def delete_cluster(name: str) -> CommandResult:
 
 
 def cluster_info(name: str) -> dict:
-    context = f"kind-{name}"
-    nodes = _run(["kubectl", "--context", context, "get", "nodes", "-o", "json"])
+    # Late import to avoid circular dependency (cluster_ctx imports _run from here).
+    from app.services.cluster_ctx import cluster_args
+
+    nodes = _run(["kubectl", *cluster_args(name), "get", "nodes", "-o", "json"])
     if not nodes.ok:
         return {"nodes": [], "error": nodes.stderr}
     try:

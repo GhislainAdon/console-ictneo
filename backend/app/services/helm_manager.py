@@ -1,5 +1,11 @@
 """Wrapper around the `helm` CLI: repo add/update, fetch default values,
 install/upgrade with values override, uninstall, status, and list releases.
+
+All cluster-scoped commands route through ``cluster_args`` so that the same
+code path handles local kind clusters (``--kube-context kind-<name>``) and
+external clusters (``--kubeconfig <path>``). Helm accepts both forms for the
+same flags (``--kube-context`` and ``--kubeconfig``), so we just splice
+whatever ``cluster_args`` returns into the argv.
 """
 
 from __future__ import annotations
@@ -7,6 +13,7 @@ from __future__ import annotations
 import json
 import shutil
 
+from app.services.cluster_ctx import cluster_args
 from app.services.kind_manager import CommandResult, _run
 
 
@@ -14,8 +21,13 @@ def helm_available() -> bool:
     return shutil.which("helm") is not None
 
 
-def _ctx(cluster: str) -> str:
-    return cluster if cluster.startswith("kind-") else f"kind-{cluster}"
+def _helm_cluster_args(cluster: str) -> list[str]:
+    # cluster_args returns ["--context", ...] or ["--kubeconfig", ...]. Helm
+    # uses "--kube-context" not "--context", so swap the flag when needed.
+    args = cluster_args(cluster)
+    if args and args[0] == "--context":
+        return ["--kube-context", *args[1:]]
+    return args
 
 
 def repo_add(name: str, url: str) -> CommandResult:
@@ -67,8 +79,7 @@ def install_or_upgrade(
         "--install",
         release_name,
         f"{repo_name}/{chart}",
-        "--kube-context",
-        _ctx(cluster),
+        *_helm_cluster_args(cluster),
         "--namespace",
         namespace,
         "--create-namespace",
@@ -89,8 +100,7 @@ def uninstall(release_name: str, cluster: str, namespace: str) -> CommandResult:
             "helm",
             "uninstall",
             release_name,
-            "--kube-context",
-            _ctx(cluster),
+            *_helm_cluster_args(cluster),
             "--namespace",
             namespace,
         ],
@@ -104,8 +114,7 @@ def status(release_name: str, cluster: str, namespace: str) -> dict:
             "helm",
             "status",
             release_name,
-            "--kube-context",
-            _ctx(cluster),
+            *_helm_cluster_args(cluster),
             "--namespace",
             namespace,
             "-o",
@@ -134,7 +143,7 @@ def status(release_name: str, cluster: str, namespace: str) -> dict:
 
 
 def list_releases(cluster: str, namespace: str | None = None) -> list[dict]:
-    cmd = ["helm", "list", "--kube-context", _ctx(cluster), "-o", "json"]
+    cmd = ["helm", "list", *_helm_cluster_args(cluster), "-o", "json"]
     if namespace:
         cmd += ["--namespace", namespace]
     else:
