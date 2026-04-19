@@ -1,0 +1,15 @@
+services:
+  console:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cloud-ictneo/console:local
+    container_name: cloud-ictneo-console
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # Persist SQLite DB + imported kubeconfigs across container restarts.
+      - ./data:/app/data
+    environment:
+      CONSOLE_STATIC_DIR: /app/static
+    restart: unless-stopped
