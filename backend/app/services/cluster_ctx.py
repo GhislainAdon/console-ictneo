@@ -15,6 +15,7 @@ them via the API).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -22,6 +23,30 @@ from sqlmodel import Session, select
 from app.db import DATA_DIR, engine
 from app.models.cluster import Cluster
 from app.services.kind_manager import _run, list_clusters as kind_list
+
+# RFC 1123 DNS label — the same rule Kubernetes applies to namespaces and
+# kind cluster names. Used to gate any input that becomes a filename, a
+# kubeconfig context name, or a shell argument downstream.
+_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+
+
+def validate_cluster_name(name: str) -> None:
+    """Raise ``ValueError`` if ``name`` is unsafe to use as an identifier.
+
+    Rejects path traversal (``../``), whitespace, YAML metacharacters, and
+    anything that would surprise downstream shell-outs. Accepts only
+    lowercase letters, digits, and ``-``; must start and end alphanumeric;
+    1..63 characters.
+    """
+    if not isinstance(name, str) or not name:
+        raise ValueError("cluster name is required")
+    if len(name) > 63:
+        raise ValueError("cluster name must be 63 characters or fewer")
+    if not _NAME_RE.match(name):
+        raise ValueError(
+            "cluster name must match RFC 1123 "
+            "(lowercase letters, digits, and '-'; start/end alphanumeric)"
+        )
 
 
 def _kubeconfig_abs(path: str | None) -> Path | None:

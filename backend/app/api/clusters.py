@@ -54,6 +54,10 @@ def list_clusters():
 
 @router.post("", status_code=202)
 def create_cluster(payload: CreateClusterRequest):
+    try:
+        cluster_ctx.validate_cluster_name(payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not kind_manager.kind_available():
         raise HTTPException(status_code=503, detail="kind CLI not installed")
     if not kind_manager.docker_available():
@@ -81,16 +85,14 @@ def create_cluster(payload: CreateClusterRequest):
 
 @router.post("/external", status_code=201)
 def register_external(body: RegisterExternalRequest):
-    # Fail fast on name collision — the DB uniqueness constraint would catch
-    # it too, but we want a clean 409 with a useful message.
-    if cluster_ctx.get(body.name) is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"a cluster named '{body.name}' already exists",
-        )
     try:
         row = external_cluster.register(body.name, body.payload)
+    except external_cluster.ClusterNameConflict as exc:
+        # UNIQUE constraint is the single source of truth for name collisions.
+        # No pre-check — pre-check was racy and left orphan kubeconfig files.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
+        # Bad name / bad base64 / bad JSON / missing keys — all client errors.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(
