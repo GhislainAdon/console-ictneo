@@ -11,11 +11,22 @@ from app.services import cluster_ctx, external_cluster, kind_manager
 
 router = APIRouter(prefix="/api/clusters", tags=["clusters"])
 
-# scripts/ lives at the repo root, three parents above app/api/clusters.py
-# (app/api/clusters.py → app/api → app → backend → console → <root>).
-_REGISTER_SCRIPT = (
-    Path(__file__).resolve().parents[4] / "scripts" / "register-cluster.sh"
-)
+# The script lives at different paths depending on deployment mode:
+#   - Host/dev   : <repo-root>/scripts/register-cluster.sh
+#                  (app/api/clusters.py → app/api → app → backend → console → <root>)
+#   - Container  : /app/scripts/register-cluster.sh (copied by Dockerfile)
+_here = Path(__file__).resolve()
+_REGISTER_SCRIPT_CANDIDATES = [
+    _here.parents[4] / "scripts" / "register-cluster.sh" if len(_here.parents) > 4 else None,
+    Path("/app/scripts/register-cluster.sh"),
+]
+
+
+def _resolve_register_script() -> Path | None:
+    for candidate in _REGISTER_SCRIPT_CANDIDATES:
+        if candidate is not None and candidate.exists():
+            return candidate
+    return None
 
 
 class CreateClusterRequest(BaseModel):
@@ -101,10 +112,11 @@ def register_external(body: RegisterExternalRequest):
 
 @router.get("/register-script", response_class=PlainTextResponse)
 def register_script():
-    if not _REGISTER_SCRIPT.exists():
+    path = _resolve_register_script()
+    if path is None:
         raise HTTPException(status_code=500, detail="register-cluster.sh not found")
     return PlainTextResponse(
-        _REGISTER_SCRIPT.read_text(encoding="utf-8"),
+        path.read_text(encoding="utf-8"),
         media_type="application/x-shellscript",
     )
 

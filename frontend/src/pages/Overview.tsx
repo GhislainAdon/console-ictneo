@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { api, type Project } from '../api/client'
+import { api, type ClusterRecord, type Project } from '../api/client'
 import { useSelected } from '../store/selected'
 
 export function Overview() {
   const [projects, setProjects] = useState<Project[]>([])
-  const [clusters, setClusters] = useState<string[]>([])
+  const [clusters, setClusters] = useState<ClusterRecord[]>([])
   const [addonCount, setAddonCount] = useState<number>(0)
   const { project, setProject } = useSelected()
 
@@ -78,7 +78,7 @@ export function Overview() {
             <dt>Storage</dt><dd>SQLite · ~/console/backend/data</dd>
             <dt>Runtime</dt><dd>Python 3.14 · Node 24</dd>
             <dt>Local Clusters</dt>
-            <dd>{clusters.length > 0 ? clusters.join(', ') : '—'}</dd>
+            <dd>{clusters.length > 0 ? clusters.map((c) => c.name).join(', ') : '—'}</dd>
           </dl>
         </div>
       </div>

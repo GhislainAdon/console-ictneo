@@ -1,8 +1,10 @@
 services:
   console:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Context = repo root so the image can pick up both console/ and
+      # scripts/register-cluster.sh. Dockerfile paths are console-prefixed.
+      context: ..
+      dockerfile: console/Dockerfile
     image: cloud-ictneo/console:local
     container_name: cloud-ictneo-console
     ports:
