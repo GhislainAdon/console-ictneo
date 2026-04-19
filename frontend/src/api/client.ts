@@ -134,6 +134,14 @@ export interface Namespace {
   created_at: string | null
 }
 
+export interface ClusterRecord {
+  name: string
+  source: 'kind' | 'external'
+  k8s_version: string
+  server_url: string | null
+  created_at: string | null
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
 
@@ -173,7 +181,7 @@ export const api = {
 
   clusters: {
     health: () => request<{ docker: boolean; kind: boolean }>('/clusters/health'),
-    list: () => request<{ clusters: string[] }>('/clusters'),
+    list: () => request<{ clusters: ClusterRecord[] }>('/clusters'),
     create: (name: string, k8s_version: string) =>
       request<{ ok: boolean; stdout: string; stderr: string }>('/clusters', {
         method: 'POST',
@@ -183,6 +191,12 @@ export const api = {
       request<{ ok: boolean; stdout: string; stderr: string }>(`/clusters/${name}`, {
         method: 'DELETE',
       }),
+    registerExternal: (name: string, payload: string) =>
+      request<ClusterRecord>('/clusters/external', {
+        method: 'POST',
+        body: JSON.stringify({ name, payload }),
+      }),
+    registerScriptUrl: '/api/clusters/register-script',
   },
 
   nodes: {
