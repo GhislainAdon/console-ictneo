@@ -36,7 +36,7 @@ def _apply_column_additions() -> None:
 
 
 def init_db() -> None:
-    from app.models import node, project, release  # noqa: F401
+    from app.models import cluster, node, project, release  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
     _apply_column_additions()
