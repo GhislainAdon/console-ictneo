@@ -8,63 +8,133 @@ into the servers themselves.
 
 ## Install
 
+### Which mode should I pick?
+
+The console has two runtime modes. They are mutually exclusive — pick the
+one that matches the cluster you want to pilot.
+
+| What you want to do                                             | Mode to use     | Command                       |
+| --------------------------------------------------------------- | --------------- | ----------------------------- |
+| Provision a new local `kind` cluster and work on it             | **Host**        | `cd console && ./start.sh`    |
+| Pilot Docker Desktop's built-in Kubernetes                      | **Host**        | `cd console && ./start.sh`    |
+| Pilot a remote cluster (VPS / cloud / LAN) with a public API    | **Docker**      | `cd console && ./deploy.sh`   |
+| Pilot a remote cluster through Teleport / VPN / tunnel          | **Either**      | —                             |
+
+**Rule of thumb:** if the cluster's API-server is reachable via `127.0.0.1`
+or `kubernetes.docker.internal` (anything that only exists on your laptop),
+use **Host mode**. The console container can't reach those hostnames from
+inside Docker Desktop's VM. See [Piloting Docker Desktop's Kubernetes from
+Docker mode](#piloting-docker-desktops-kubernetes-from-docker-mode) for
+the workaround if you really need both.
+
 ### Prerequisites
 
-| Tool             | Required for                    | Install                                   |
-| ---------------- | ------------------------------- | ----------------------------------------- |
-| Python 3.10+     | backend                         | `scoop install python` (tested on 3.14)   |
-| Node.js 18+      | frontend                        | `scoop install nodejs-lts`                |
-| Docker Desktop   | local test clusters             | <https://www.docker.com/products/docker-desktop/> |
-| `kind`           | local test clusters             | `scoop install kind` (v0.31+)             |
-| `kubectl`        | Resource Explorer + Helm Manager| `scoop install kubectl`                   |
-| `helm`           | Helm Manager + Helm Builder     | `scoop install helm`                      |
+| Tool           | Needed by mode | Purpose                         | Install                                          |
+| -------------- | -------------- | ------------------------------- | ------------------------------------------------ |
+| Docker Desktop | both           | Docker daemon (host mode uses it for `kind`; Docker mode runs the container) | <https://www.docker.com/products/docker-desktop/> |
+| Python 3.10+   | host only      | backend                         | `scoop install python` (tested on 3.14)          |
+| Node.js 18+    | host only      | frontend (Vite dev)             | `scoop install nodejs-lts`                       |
+| `kind`         | host only      | local test clusters             | `scoop install kind` (v0.31+)                    |
+| `kubectl`      | host only      | Resource Explorer + Helm Manager| `scoop install kubectl`                          |
+| `helm`         | host only      | Helm Manager + Helm Builder     | `scoop install helm`                             |
 
-The three CLIs (`kind`, `kubectl`, `helm`) must be on `$PATH` for the
-console to shell out to them. Docker Desktop must be running before you
-try to provision a cluster.
+In Docker mode everything (`kubectl`, `helm`, the Python runtime) is baked
+into the image, so the only host requirement is Docker Desktop itself.
 
-### One-shot start (host mode — full featured)
+### Mode A — Host (full-featured)
 
 ```bash
 cd console
 ./start.sh
 ```
 
-`start.sh` creates the Python venv, installs backend deps (with the Python
-3.14 compatibility flag PyO3 needs), installs frontend deps, then launches:
+`start.sh` creates the Python venv, installs backend deps (with the
+`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` flag PyO3 needs on Python 3.14),
+installs frontend deps, then launches:
 
 - backend: <http://127.0.0.1:8765>
 - frontend: <http://127.0.0.1:5173>
 
-Open the frontend URL in a browser. Use this mode to provision local `kind`
-clusters from the UI.
+Open the frontend URL in a browser.
 
-### Docker Desktop (pilot-only mode)
+**What works in this mode:**
+
+- ✅ Provision new local `kind` clusters from the UI
+- ✅ Pilot Docker Desktop's Kubernetes (use context `docker-desktop`)
+- ✅ Register and pilot remote external clusters
+- ✅ SSH to target nodes (uses the host's `ssh-agent` / `~/.ssh/config`)
+
+Stop with `Ctrl-C`. State (SQLite + kubeconfigs) is in
+`console/backend/data/`.
+
+### Mode B — Docker (pilot-only)
 
 ```bash
 cd console
 ./deploy.sh
 ```
 
-One container serves both the backend and the built frontend at
-<http://127.0.0.1:8765>. The container does **not** ship `kind` or `docker`,
-so it cannot provision new local clusters — but it can register and pilot
-any external Kubernetes cluster (see [Piloting an existing
-cluster](#piloting-an-existing-cluster)).
+A single container serves both backend and the built frontend at
+<http://127.0.0.1:8765>. The container **does not** ship `kind` or
+`docker`, so it cannot provision new local clusters — it can only register
+and pilot external clusters whose API-server is reachable from inside the
+Docker Desktop VM.
 
-| Command | What it does |
-| --- | --- |
-| `./deploy.sh` or `./deploy.sh up` | Build + start the container |
-| `./deploy.sh logs` | Follow container logs |
-| `./deploy.sh ps` | Container status |
-| `./deploy.sh down` | Stop and remove the container |
+| Command                           | What it does                   |
+| --------------------------------- | ------------------------------ |
+| `./deploy.sh` or `./deploy.sh up` | Build + start the container    |
+| `./deploy.sh logs`                | Follow container logs          |
+| `./deploy.sh ps`                  | Container status               |
+| `./deploy.sh down`                | Stop and remove the container  |
 
-Persistence: SQLite and registered kubeconfigs live in `console/data/`.
-Delete that directory to reset everything.
+**What works in this mode:**
 
-Prerequisite: Docker Desktop running. No other CLI required on the host.
+- ❌ `kind` (missing from the image — by design)
+- ❌ Docker Desktop's own Kubernetes (`127.0.0.1:6443` /
+  `kubernetes.docker.internal` are not reachable from inside the container)
+- ✅ Any remote cluster reachable from the Docker Desktop VM — a public
+  or LAN-accessible API-server, a Teleport tunnel, a VPN-mapped IP, …
 
-### Manual
+State (SQLite + kubeconfigs) is persisted on the host in `console/data/`
+via a bind mount. Delete that directory to reset everything.
+
+#### Piloting Docker Desktop's Kubernetes from Docker mode
+
+If for some reason you cannot use host mode but still want to pilot Docker
+Desktop's Kubernetes from a containerised console, rewrite the server URL
+before pasting the payload:
+
+```bash
+bash scripts/register-cluster.sh --role admin \
+  | base64 -d \
+  | sed 's|kubernetes.docker.internal|host.docker.internal|; s|127.0.0.1|host.docker.internal|' \
+  | base64 | tr -d '\n'
+```
+
+`host.docker.internal` is a Docker-Desktop-provided DNS name that resolves
+to the host from inside any container. This is a workaround — host mode is
+still the recommended path for Docker Desktop K8s.
+
+### Switching modes
+
+The two modes share no state, but they do both bind `127.0.0.1:8765`, so
+only one can run at a time.
+
+```bash
+# Docker → Host
+cd console && ./deploy.sh down && ./start.sh
+
+# Host → Docker
+# (Ctrl-C the host process first, then:)
+cd console && ./deploy.sh
+```
+
+Registered external clusters live in different directories per mode
+(`backend/data/kubeconfigs/` vs `data/kubeconfigs/`), so you'll re-register
+if you switch. Local kind clusters are owned by the Docker daemon directly
+and are visible from host mode only.
+
+### Manual (for debugging)
 
 ```bash
 # backend
