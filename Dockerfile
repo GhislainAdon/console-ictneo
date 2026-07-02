@@ -54,8 +54,15 @@ COPY console/backend/ /app/
 COPY scripts/register-cluster.sh /app/scripts/register-cluster.sh
 COPY --from=web /web/dist /app/static
 
-RUN mkdir -p /app/data/kubeconfigs
+# Run as a dedicated non-root user; /app/data is the only writable path
+# (SQLite DB + kubeconfigs). --create-home gives helm/kubectl a HOME for
+# their config/cache dirs.
+RUN useradd --system --create-home --uid 10001 console \
+    && mkdir -p /app/data/kubeconfigs \
+    && chown -R console:console /app/data
 VOLUME ["/app/data"]
+
+USER console
 
 EXPOSE 8765
 

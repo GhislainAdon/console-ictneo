@@ -53,7 +53,7 @@ Docker    multi-stage (node:20-alpine → python:3.12-slim)
 |---|--------|----------|--------------|
 | 1 | **Aucune authentification / autorisation** sur l'API | Haute (si exposé) | `app/main.py` — toutes les routes |
 | 2 | **Mots de passe SSH en clair dans SQLite** | Haute | `models/node.py:14`, utilisés `services/ssh_runner.py:66` |
-| 3 | **Conteneur exécuté en root** (pas de `USER`) | Haute | `Dockerfile` |
+| 3 | ~~**Conteneur exécuté en root** (pas de `USER`)~~ — corrigé : user `console` (uid 10001) | ~~Haute~~ | `Dockerfile` |
 | 4 | Kubeconfigs (tokens bearer) en clair sur disque, chmod 0600 inopérant sous Windows/NTFS | Moyenne | `services/external_cluster.py:57-69` |
 | 5 | CORS wildcard `allow_origins=["*"]` + credentials | Moyenne | `app/main.py:26-32` |
 | 6 | Commande SSH non validée côté API (Paramiko `exec_command` sans parsing) | Moyenne | `api/nodes.py:118-127` → `ssh_runner.py:102` |
@@ -72,8 +72,8 @@ l'app est exposée au-delà de localhost.
 
 ### Court terme (hygiène, < 1 jour)
 
-1. **Dockerfile non-root** : créer un user dédié (`RUN useradd -r console` +
-   `USER console`) et ajouter un `HEALTHCHECK` sur `/api/health`.
+1. ~~**Dockerfile non-root**~~ **Fait (2026-07)** : user dédié `console`
+   (uid 10001), `/app/data` chowné. Reste optionnel : `HEALTHCHECK`.
 2. **Défense en profondeur sur les routes k8s** : réutiliser le validateur
    RFC 1123 existant (`cluster_ctx.py`) comme dépendance FastAPI sur
    `cluster`, `namespace`, `kind`, `name`.
