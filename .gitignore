@@ -5,3 +5,7 @@ frontend/node_modules/
 frontend/dist/
 *.pyc
 .DS_Store
+
+# Runtime data (SQLite DB, kubeconfigs) — never commit
+data/
+*.db
