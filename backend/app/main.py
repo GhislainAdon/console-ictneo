@@ -18,7 +18,7 @@ from app.api import (
 )
 
 app = FastAPI(
-    title="cloud-ictneo console API",
+    title="console-ictneo API",
     version="0.1.0",
     description="Dashboard API for provisioning Kubernetes projects",
 )
@@ -39,7 +39,7 @@ def on_startup() -> None:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "cloud-ictneo-console"}
+    return {"status": "ok", "service": "console-ictneo"}
 
 
 app.include_router(projects.router)

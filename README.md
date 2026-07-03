@@ -1,6 +1,6 @@
-# cloud-ictneo · Command Console
+# console-ictneo · Command Console
 
-Futuristic sci-fi dashboard on top of `cloud-ictneo` that lets you run
+Futuristic sci-fi standalone dashboard (extracted from `cloud-ictneo`) that lets you run
 multiple Kubernetes projects from one place: declare target servers,
 spin up local test clusters, manage namespaces, install Helm charts from
 any upstream repo, explore running resources, and exec into pods or
@@ -65,7 +65,7 @@ Open the frontend URL in a browser.
 - ✅ SSH to target nodes (uses the host's `ssh-agent` / `~/.ssh/config`)
 
 Stop with `Ctrl-C`. State (SQLite + kubeconfigs) is in
-`console/backend/data/`.
+`backend/data/`.
 
 ### Mode B — Docker (pilot-only)
 
@@ -95,7 +95,7 @@ Docker Desktop VM.
 - ✅ Any remote cluster reachable from the Docker Desktop VM — a public
   or LAN-accessible API-server, a Teleport tunnel, a VPN-mapped IP, …
 
-State (SQLite + kubeconfigs) is persisted on the host in `console/data/`
+State (SQLite + kubeconfigs) is persisted on the host in `data/`
 via a bind mount. Delete that directory to reset everything.
 
 #### Piloting Docker Desktop's Kubernetes from Docker mode
@@ -138,13 +138,13 @@ and are visible from host mode only.
 
 ```bash
 # backend
-cd console/backend
+cd backend
 python -m venv .venv
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 .venv/Scripts/python -m pip install -r requirements.txt
 .venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 
 # frontend (separate shell)
-cd console/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -166,7 +166,7 @@ Create and select a project. Each project holds:
 - a **target nodes** list (see below)
 - a **Helm releases** list (see below)
 
-Projects are stored in SQLite under `console/backend/data/console.db`.
+Projects are stored in SQLite under `backend/data/console.db`.
 Delete the file to reset everything.
 
 #### Target Nodes
@@ -234,7 +234,7 @@ machine except a scoped bearer token.
 
 1. In the UI, click **+ Register External** on the Clusters page.
 2. Download `register-cluster.sh` from the drawer (or grab it from
-   [../scripts/register-cluster.sh](../scripts/register-cluster.sh)) and
+   [scripts/register-cluster.sh](scripts/register-cluster.sh)) and
    hand it to someone with `cluster-admin` on the target cluster.
 3. They run it, picking the RBAC level they're comfortable granting:
 
@@ -244,7 +244,7 @@ machine except a scoped bearer token.
    bash register-cluster.sh --role admin   # cluster-admin
    ```
 
-   The script creates namespace `cloud-ictneo-console`, ServiceAccount
+   The script creates namespace `console-ictneo`, ServiceAccount
    `console-pilot`, a ClusterRoleBinding at the chosen level, and a
    long-lived token Secret. It prints a single-line base64 blob.
 4. Copy that blob into the drawer's **Base64 payload** field, give the
@@ -256,7 +256,7 @@ machine except a scoped bearer token.
    Explorer, Helm Manager, and Namespaces now target it.
 
 Revocation: on the target cluster, `kubectl delete sa console-pilot -n
-cloud-ictneo-console` (or the matching ClusterRoleBinding) cuts access.
+console-ictneo` (or the matching ClusterRoleBinding) cuts access.
 Re-running the script rotates the token.
 
 Reachability: the console must be able to hit the cluster's API-server

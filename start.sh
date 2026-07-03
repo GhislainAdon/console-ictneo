@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cloud-ictneo console · one-shot launcher
+# console-ictneo · one-shot launcher
 # Starts backend (FastAPI on :8765) and frontend (Vite dev on :5173).
 set -euo pipefail
 

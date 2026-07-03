@@ -1,21 +1,20 @@
 # syntax=docker/dockerfile:1.7
 #
-# Build context must be the REPO ROOT (not console/), so the image can pull
-# in both console/ and scripts/register-cluster.sh. docker-compose.yml sets
-# this; if you invoke `docker build` manually, run it from the repo root:
+# Build context = this repo's root. Everything the image needs (backend/,
+# frontend/, scripts/register-cluster.sh) lives in this repo:
 #
-#   docker build -f console/Dockerfile -t cloud-ictneo/console:local .
+#   docker build -t console-ictneo:local .
 
 # ---- Stage 1: build the frontend into static assets -------------------------
 FROM node:20-alpine AS web
 
 WORKDIR /web
-COPY console/frontend/package.json console/frontend/package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 # `npm install` (not `npm ci`) because the project's lockfile is not always
 # in strict sync with package.json; we want the image to build reliably from
 # a clean checkout regardless.
 RUN npm install --no-audit --no-fund
-COPY console/frontend/ ./
+COPY frontend/ ./
 RUN npm run build      # → /web/dist
 
 # ---- Stage 2: python runtime with kubectl + helm ----------------------------
@@ -47,10 +46,10 @@ RUN set -eux; \
 
 WORKDIR /app
 
-COPY console/backend/requirements.txt ./
+COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
 
-COPY console/backend/ /app/
+COPY backend/ /app/
 COPY scripts/register-cluster.sh /app/scripts/register-cluster.sh
 COPY --from=web /web/dist /app/static
 

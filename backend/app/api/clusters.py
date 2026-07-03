@@ -13,11 +13,11 @@ router = APIRouter(prefix="/api/clusters", tags=["clusters"])
 
 # The script lives at different paths depending on deployment mode:
 #   - Host/dev   : <repo-root>/scripts/register-cluster.sh
-#                  (app/api/clusters.py → app/api → app → backend → console → <root>)
+#                  (app/api/clusters.py → app/api → app → backend → <root>)
 #   - Container  : /app/scripts/register-cluster.sh (copied by Dockerfile)
 _here = Path(__file__).resolve()
 _REGISTER_SCRIPT_CANDIDATES = [
-    _here.parents[4] / "scripts" / "register-cluster.sh" if len(_here.parents) > 4 else None,
+    _here.parents[3] / "scripts" / "register-cluster.sh" if len(_here.parents) > 3 else None,
     Path("/app/scripts/register-cluster.sh"),
 ]
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cloud-ictneo · console · one-shot Docker deploy
+# console-ictneo · one-shot Docker deploy
 #
 # Builds the image (multi-stage node + python), ensures the data volume
 # exists, and starts the container bound to 127.0.0.1:8765.
