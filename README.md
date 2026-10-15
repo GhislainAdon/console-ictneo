@@ -1,354 +1,133 @@
-# console-ictneo · Command Console
+# console-ictneo: Kubernetes command console
 
-Futuristic sci-fi standalone dashboard (extracted from `cloud-ictneo`) that lets you run
-multiple Kubernetes projects from one place: declare target servers,
-spin up local test clusters, manage namespaces, install Helm charts from
-any upstream repo, explore running resources, and exec into pods or
-into the servers themselves.
+[![CI](https://github.com/GhislainAdon/console-ictneo/actions/workflows/ci.yml/badge.svg)](https://github.com/GhislainAdon/console-ictneo/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![Helm](https://img.shields.io/badge/Helm-3-0F1689?logo=helm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Install
+> A self-hosted **FastAPI + React** dashboard to run several Kubernetes projects from one place: declare target servers, spin up local `kind` clusters or onboard any remote cluster with a scoped ServiceAccount, manage namespaces, install Helm charts from any repo, generate manifests and Helm charts, explore live resources, and exec into pods or servers.
 
-### Which mode should I pick?
+[Résumé en français](#résumé-en-français) · [Detailed usage guide](docs/USAGE.md) · [Architecture review (FR)](docs/ANALYSE.fr.md)
 
-The console has two runtime modes. They are mutually exclusive — pick the
-one that matches the cluster you want to pilot.
+---
 
-| What you want to do                                             | Mode to use     | Command                       |
-| --------------------------------------------------------------- | --------------- | ----------------------------- |
-| Provision a new local `kind` cluster and work on it             | **Host**        | `cd console && ./start.sh`    |
-| Pilot Docker Desktop's built-in Kubernetes                      | **Host**        | `cd console && ./start.sh`    |
-| Pilot a remote cluster (VPS / cloud / LAN) with a public API    | **Docker**      | `cd console && ./deploy.sh`   |
-| Pilot a remote cluster through Teleport / VPN / tunnel          | **Either**      | —                             |
+## The problem
 
-**Rule of thumb:** if the cluster's API-server is reachable via `127.0.0.1`
-or `kubernetes.docker.internal` (anything that only exists on your laptop),
-use **Host mode**. The console container can't reach those hostnames from
-inside Docker Desktop's VM. See [Piloting Docker Desktop's Kubernetes from
-Docker mode](#piloting-docker-desktops-kubernetes-from-docker-mode) for
-the workaround if you really need both.
+A DevOps engineer working on several client or lab projects ends up juggling `kind` clusters, remote clusters behind different kubeconfigs, Helm repos, values files and SSH sessions to nodes. Each project has its own Kubernetes version, cert provider, domain and add-on set. Lens/Freelens are great at *viewing* clusters, but they do not model **projects** (nodes + cluster + releases + generated artefacts) and do not help **bootstrap** them.
 
-### Prerequisites
+console-ictneo groups everything per project. A project has a K8s version, cert provider, domain, add-on matrix, target nodes, an attached cluster and Helm releases. The console drives `kind`, `kubectl`, `helm` and SSH for you.
 
-| Tool           | Needed by mode | Purpose                         | Install                                          |
-| -------------- | -------------- | ------------------------------- | ------------------------------------------------ |
-| Docker Desktop | both           | Docker daemon (host mode uses it for `kind`; Docker mode runs the container) | <https://www.docker.com/products/docker-desktop/> |
-| Python 3.10+   | host only      | backend                         | `scoop install python` (tested on 3.14)          |
-| Node.js 18+    | host only      | frontend (Vite dev)             | `scoop install nodejs-lts`                       |
-| `kind`         | host only      | local test clusters             | `scoop install kind` (v0.31+)                    |
-| `kubectl`      | host only      | Resource Explorer + Helm Manager| `scoop install kubectl`                          |
-| `helm`         | host only      | Helm Manager + Helm Builder     | `scoop install helm`                             |
+## Architecture
 
-In Docker mode everything (`kubectl`, `helm`, the Python runtime) is baked
-into the image, so the only host requirement is Docker Desktop itself.
+```mermaid
+flowchart LR
+    subgraph Browser
+        UI["React 19 + Vite SPA<br/>Projects · Clusters · Explorer<br/>Forge · Helm Builder · Helm Manager"]
+    end
 
-### Mode A — Host (full-featured)
+    subgraph Console["console-ictneo (container or host, 127.0.0.1:8765)"]
+        API["FastAPI<br/>/api/* + OpenAPI /docs"]
+        DB[("SQLite<br/>SQLModel")]
+        GEN["Generators<br/>(K8s manifests, Helm charts,<br/>node bootstrap.sh)"]
+        CTX["cluster_ctx<br/>(per-cluster kubeconfig args)"]
+        API --- DB
+        API --> GEN
+        API --> CTX
+    end
+
+    UI -->|"REST (served by uvicorn in Docker mode)"| API
+    CTX -->|"kubectl / helm"| KIND["Local kind clusters<br/>(host mode)"]
+    CTX -->|"kubectl / helm<br/>scoped SA token"| EXT["External clusters<br/>(VPS, cloud, LAN)"]
+    API -->|"SSH (paramiko)"| NODES["Target servers<br/>(bootstrap, exec)"]
+
+    ADMIN["Cluster admin"] -->|"register-cluster.sh --role view / edit / admin<br/>then paste base64 payload"| UI
+```
+
+## Features
+
+- **Projects**: K8s version (1.31–1.35), cert provider (Let's Encrypt / Cloudflare origin CA), domain, a matrix of ~16 add-ons, target nodes and Helm releases.
+- **Target nodes**: SSH via agent, key or password, a generated per-node `bootstrap.sh`, and remote command exec.
+- **Clusters**: one-click **`kind`** provisioning (host mode) or **external cluster onboarding**. The cluster admin runs [`scripts/register-cluster.sh`](scripts/register-cluster.sh) with `--role view|edit|admin`. It creates a dedicated ServiceAccount + ClusterRoleBinding and returns a base64 payload. Access is revoked by deleting the SA.
+- **Namespaces**: list, create and delete, with RFC 1123 validation and system namespaces protected.
+- **Resource Explorer**: 16 kinds, YAML describe, scale ±1, delete, one-shot pod exec.
+- **Resource Forge**: form-based generation of raw manifests for 15 kinds.
+- **Helm Builder**: generates a full chart from scratch (deployment, service, ingress, HPA, SA, ConfigMap, `values-{dev,test,prod}.yaml`) and downloads it as a zip.
+- **Helm Manager**: add any repo, load chart default values, edit overrides, idempotent `helm upgrade --install`, uninstall. Releases are tracked as `draft → deployed → uninstalled/failed`.
+- **Two runtime modes**: *Host* (full features incl. `kind`) or *Docker* (single non-root container with `kubectl` + `helm` baked in, for piloting remote clusters).
+
+## Quickstart
+
+**Docker mode** (pilot remote clusters; only Docker needed):
 
 ```bash
-cd console
+git clone https://github.com/GhislainAdon/console-ictneo.git && cd console-ictneo
+./deploy.sh                 # or: docker compose up -d --build
+# -> http://127.0.0.1:8765  (API docs at /docs)
+```
+
+**Host mode** (also provisions local `kind` clusters; needs Python 3.10+, Node 18+, kind, kubectl, helm):
+
+```bash
 ./start.sh
+# backend  -> http://127.0.0.1:8765
+# frontend -> http://127.0.0.1:5173
 ```
 
-`start.sh` creates the Python venv, installs backend deps (with the
-`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` flag PyO3 needs on Python 3.14),
-installs frontend deps, then launches:
-
-- backend: <http://127.0.0.1:8765>
-- frontend: <http://127.0.0.1:5173>
-
-Open the frontend URL in a browser.
-
-**What works in this mode:**
-
-- ✅ Provision new local `kind` clusters from the UI
-- ✅ Pilot Docker Desktop's Kubernetes (use context `docker-desktop`)
-- ✅ Register and pilot remote external clusters
-- ✅ SSH to target nodes (uses the host's `ssh-agent` / `~/.ssh/config`)
-
-Stop with `Ctrl-C`. State (SQLite + kubeconfigs) is in
-`backend/data/`.
-
-### Mode B — Docker (pilot-only)
+**Onboard an existing cluster**: on the Clusters page click *+ Register External*, then have a cluster admin run:
 
 ```bash
-cd console
-./deploy.sh
+bash scripts/register-cluster.sh --role view     # or edit / admin
 ```
 
-A single container serves both backend and the built frontend at
-<http://127.0.0.1:8765>. The container **does not** ship `kind` or
-`docker`, so it cannot provision new local clusters — it can only register
-and pilot external clusters whose API-server is reachable from inside the
-Docker Desktop VM.
+Paste the printed payload into the drawer. See the [usage guide](docs/USAGE.md) for every screen, the API reference and the Docker Desktop networking caveats.
 
-| Command                           | What it does                   |
-| --------------------------------- | ------------------------------ |
-| `./deploy.sh` or `./deploy.sh up` | Build + start the container    |
-| `./deploy.sh logs`                | Follow container logs          |
-| `./deploy.sh ps`                  | Container status               |
-| `./deploy.sh down`                | Stop and remove the container  |
+## Screenshots
 
-**What works in this mode:**
+> _Placeholders, to be added (see [docs/screenshots](docs/screenshots/))._
 
-- ❌ `kind` (missing from the image — by design)
-- ❌ Docker Desktop's own Kubernetes (`127.0.0.1:6443` /
-  `kubernetes.docker.internal` are not reachable from inside the container)
-- ✅ Any remote cluster reachable from the Docker Desktop VM — a public
-  or LAN-accessible API-server, a Teleport tunnel, a VPN-mapped IP, …
+| Overview | Projects & nodes | Resource Explorer | Helm Manager |
+|---|---|---|---|
+| `docs/screenshots/overview.png` | `docs/screenshots/projects.png` | `docs/screenshots/explorer.png` | `docs/screenshots/helm-manager.png` |
 
-State (SQLite + kubeconfigs) is persisted on the host in `data/`
-via a bind mount. Delete that directory to reset everything.
+## Tech stack
 
-#### Piloting Docker Desktop's Kubernetes from Docker mode
-
-If for some reason you cannot use host mode but still want to pilot Docker
-Desktop's Kubernetes from a containerised console, rewrite the server URL
-before pasting the payload:
-
-```bash
-bash scripts/register-cluster.sh --role admin \
-  | base64 -d \
-  | sed 's|kubernetes.docker.internal|host.docker.internal|; s|127.0.0.1|host.docker.internal|' \
-  | base64 | tr -d '\n'
-```
-
-`host.docker.internal` is a Docker-Desktop-provided DNS name that resolves
-to the host from inside any container. This is a workaround — host mode is
-still the recommended path for Docker Desktop K8s.
-
-### Switching modes
-
-The two modes share no state, but they do both bind `127.0.0.1:8765`, so
-only one can run at a time.
-
-```bash
-# Docker → Host
-cd console && ./deploy.sh down && ./start.sh
-
-# Host → Docker
-# (Ctrl-C the host process first, then:)
-cd console && ./deploy.sh
-```
-
-Registered external clusters live in different directories per mode
-(`backend/data/kubeconfigs/` vs `data/kubeconfigs/`), so you'll re-register
-if you switch. Local kind clusters are owned by the Docker daemon directly
-and are visible from host mode only.
-
-### Manual (for debugging)
-
-```bash
-# backend
-cd backend
-python -m venv .venv
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 .venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
-
-# frontend (separate shell)
-cd frontend
-npm install
-npm run dev
-```
-
-## Usage
-
-The sidebar drives everything. Pages are ordered top-to-bottom along the
-typical provisioning flow.
-
-### 1. Projects
-
-Create and select a project. Each project holds:
-
-- a **K8s version** (1.31..1.35, matched to the kind node images shipped
-  by kind v0.31)
-- a **cert provider** (`letsencrypt` or `cloudflare` origin CA)
-- a **domain**
-- an **addons matrix** (~16 addons, organised by category)
-- a **target nodes** list (see below)
-- a **Helm releases** list (see below)
-
-Projects are stored in SQLite under `backend/data/console.db`.
-Delete the file to reset everything.
-
-#### Target Nodes
-
-Once a project is selected, a **Target Nodes** panel appears below the
-project fleet. Each node records:
-
-| Field       | Values                                                                |
-| ----------- | --------------------------------------------------------------------- |
-| hostname    | unique within the project                                             |
-| address     | IP or FQDN (blank = same as hostname)                                 |
-| role        | `control-plane` or `worker`                                           |
-| os_family   | `debian` (Ubuntu / Debian) or `redhat` (RHEL / Rocky / Alma / CentOS) |
-| ssh_user    | default `root`                                                        |
-| ssh_port    | default `22`                                                          |
-| ssh_auth    | `agent` (pre-configured), `password`, or `key`                        |
-| labels      | free-form comma-separated                                             |
-
-**SSH auth modes**
-
-- **agent** — no credentials are stored. The console uses the
-  `ssh-agent` / `~/.ssh/config` of the host it runs on. Use this when
-  you already have passwordless SSH set up.
-- **password** — stored in SQLite, **redacted to `***` on every read**
-  through the API. The raw value is only used to open the SSH connection.
-- **key** — path to a private key file on the console host. Ed25519,
-  ECDSA, and RSA are auto-detected.
-
-Each node tile has two actions:
-
-- **⤓ BOOTSTRAP** downloads a generated `bootstrap-<hostname>.sh`
-  idempotent shell script that installs containerd + kubelet / kubeadm /
-  kubectl pinned to the project's K8s version. It picks `apt` for debian
-  targets and `dnf` + **EPEL** + docker-ce + kubernetes repos for redhat
-  targets, tunes kernel modules / sysctl / swap, switches SELinux to
-  permissive on RHEL, and opens the control-plane firewall ports if
-  firewalld is active. Run it on the node (as a user with sudo).
-- **▾ TERMINAL** expands an inline one-shot command runner. Type any
-  shell command, hit Enter, and it is SSH-executed on the node using
-  the auth mode you configured. Output + exit code are shown below.
-  This is deliberately **not** an interactive PTY — for a real shell,
-  use your own terminal.
-
-### 2. Clusters
-
-Configure the K8s version, cert provider, domain, and addons, then either
-provision a local `kind` cluster with one click **or** register an existing
-external cluster (see [Piloting an existing
-cluster](#piloting-an-existing-cluster)). The page shows a unified table:
-one row per cluster with a `source` badge (`kind` or `external`), the
-detected K8s version, the API-server URL, and **Attach / Remove** actions.
-
-Once a cluster is attached to the selected project, a **Namespaces** panel
-appears below the launch sequence: list, create (RFC 1123 validated), and
-delete namespaces in that cluster. The four system namespaces
-(`default`, `kube-system`, `kube-public`, `kube-node-lease`) are refused
-by name.
-
-#### Piloting an existing cluster
-
-The console can manage any Kubernetes cluster it can reach over the
-network. Registration uses a one-shot ServiceAccount + ClusterRoleBinding
-created on the target cluster; no credentials leave the cluster admin's
-machine except a scoped bearer token.
-
-1. In the UI, click **+ Register External** on the Clusters page.
-2. Download `register-cluster.sh` from the drawer (or grab it from
-   [scripts/register-cluster.sh](scripts/register-cluster.sh)) and
-   hand it to someone with `cluster-admin` on the target cluster.
-3. They run it, picking the RBAC level they're comfortable granting:
-
-   ```bash
-   bash register-cluster.sh --role view    # read-only (default)
-   bash register-cluster.sh --role edit    # read/write on most kinds
-   bash register-cluster.sh --role admin   # cluster-admin
-   ```
-
-   The script creates namespace `console-ictneo`, ServiceAccount
-   `console-pilot`, a ClusterRoleBinding at the chosen level, and a
-   long-lived token Secret. It prints a single-line base64 blob.
-4. Copy that blob into the drawer's **Base64 payload** field, give the
-   cluster a display name, click **Register**.
-5. The backend writes a minimal kubeconfig to
-   `data/kubeconfigs/<name>.yaml` (mode `0600`), probes the cluster to
-   detect its K8s version, and stores the row.
-6. Optionally attach the new cluster to the current project — Resource
-   Explorer, Helm Manager, and Namespaces now target it.
-
-Revocation: on the target cluster, `kubectl delete sa console-pilot -n
-console-ictneo` (or the matching ClusterRoleBinding) cuts access.
-Re-running the script rotates the token.
-
-Reachability: the console must be able to hit the cluster's API-server
-directly. Behind NAT, use a VPN, Teleport, or an IP allowlist.
-
-### 3. Resource Explorer
-
-Once a project has an attached cluster, pick a namespace and a kind
-(16 kinds supported: deployment, statefulset, daemonset, replicaset,
-pod, service, ingress, configmap, secret, pvc, job, cronjob, hpa,
-networkpolicy, serviceaccount, role, rolebinding) and see the live
-list.
-
-Per-item actions:
-
-- click a row to **describe** it (full YAML on the right)
-- **+ / −** scale deployments up/down one replica at a time (JSON merge patch)
-- **DELETE** removes the resource (`kubectl delete --wait=false`)
-- on pods, a one-shot **Exec** runner lets you type a command and see
-  stdout + stderr + exit code
-
-### 4. Resource Forge
-
-Generate a single raw Kubernetes manifest from a form. Fifteen kinds
-are supported. Copy-to-clipboard for pasting into `kubectl apply`.
-Use this for quick one-off manifests.
-
-### 5. Helm Builder
-
-Generate a **brand-new Helm chart** from scratch for a project.
-Produces `Chart.yaml`, `_helpers.tpl`, `deployment.yaml`, `service.yaml`,
-`ingress.yaml`, `hpa.yaml`, `serviceaccount.yaml`, `configmap.yaml`,
-plus `values.yaml` and per-env overrides `values-dev.yaml`,
-`values-test.yaml`, `values-prod.yaml`. Inspect the tree in the browser
-or download the whole chart as a `.zip`.
-
-### 6. Helm Manager
-
-Install and manage Helm releases from **any upstream repo** (bitnami,
-jetstack, prometheus-community, your private registry, ...). Flow:
-
-1. **Add a repo** (name + URL). The console runs `helm repo add` and
-   `helm repo update` for you.
-2. **Fill a draft release**: name, repo, chart, version, cluster,
-   namespace. The cluster defaults to the one attached to the selected
-   project.
-3. Click **⤓ Load default values** to fetch the chart's `values.yaml`
-   into the textarea.
-4. Edit the textarea to override what you want (supports flat and
-   nested YAML — `key: value` and 2-space indented maps).
-5. **▸ Save Release** stores the draft in SQLite.
-6. **▸ DEPLOY / UPGRADE** runs `helm upgrade --install` with your
-   override against the configured context/namespace. The same button
-   handles the initial install and later upgrades — the backend always
-   uses `--install` so it's idempotent.
-7. **⏹ UNINSTALL** runs `helm uninstall`.
-8. **DELETE** removes the release record (does not uninstall from the
-   cluster — use UNINSTALL first).
-
-Statuses flow `draft → deployed → uninstalled`, or `failed` if the last
-deploy/upgrade errored.
-
-## API
-
-All endpoints live under `/api`. Full OpenAPI schema at
-<http://127.0.0.1:8765/docs>.
-
-| Area           | Routes                                                                 |
-| -------------- | ---------------------------------------------------------------------- |
-| Projects       | `GET/POST /projects`, `GET/PATCH/DELETE /projects/{id}`                |
-| Nodes          | `GET/POST /projects/{id}/nodes`, `DELETE /projects/{id}/nodes/{nid}`   |
-| Node bootstrap | `GET /projects/{id}/nodes/{nid}/bootstrap.sh`                          |
-| Node exec      | `POST /projects/{id}/nodes/{nid}/exec`                                 |
-| Catalog        | `/catalog/{k8s-versions,cert-providers,addons,resources}`              |
-| Clusters       | `/clusters` CRUD + `/clusters/health`                                  |
-| Namespaces     | `/clusters/{name}/namespaces` CRUD                                     |
-| Helm repos     | `GET/POST /helm/repos`, `POST /helm/values`, `POST /helm/chart`        |
-| Releases       | `/projects/{id}/releases`, `/releases/{id}{,/deploy,/uninstall,/status}` |
-| Generators     | `POST /generate/resource`, `POST /generate/helm/{preview,download}`    |
-| kubectl        | `GET /k8s/{cluster}/{ns}/{kind}[/{name}]`, `DELETE`, `.../patch`, `.../exec`, `.../logs` |
-
-## Data
-
-SQLite file at `backend/data/console.db`. Forward-only column additions
-run on every startup from `app/db.py::_COLUMN_ADDITIONS` so the dev DB
-rolls forward without Alembic.
+- **Backend**: Python 3.12, FastAPI, SQLModel/SQLite, Pydantic v2, Jinja2 templates, Paramiko (SSH), `kubectl` / `helm` / `kind` driven via subprocess
+- **Frontend**: React 19, TypeScript, Vite, React Router, Zustand, Framer Motion
+- **Packaging**: multi-stage Dockerfile (Node 22 build → `python:3.12-slim`, non-root UID 10001), docker compose bound to localhost
+- **CI**: GitHub Actions with ruff, a backend import smoke test, `npm ci` + type-checked Vite build, ShellCheck, Docker build and a Trivy image scan
 
 ## Security notes
 
-- SSH passwords are stored in SQLite **in clear text**. This is a local
-  dev dashboard, not a production secret store. Prefer `agent` or `key`
-  modes wherever possible.
-- Delete `backend/data/console.db` to wipe everything.
-- The backend binds to `127.0.0.1` by default — do not expose it without
-  adding auth in front.
+- Built as a **local operator tool**. It binds to `127.0.0.1` and has **no authentication yet**. Put an authenticating proxy in front (OIDC, Teleport App Access) before exposing it.
+- SSH passwords for target nodes are stored **in clear text** in SQLite. Prefer `agent` or `key` auth.
+- External clusters are accessed with a **scoped ServiceAccount token** (view by default), stored in `data/kubeconfigs/*.yaml` with mode `0600`.
+
+## Roadmap
+
+- [ ] Authentication (OIDC middleware) and per-user audit log for exec / delete actions
+- [ ] Encrypt stored secrets (age / SOPS or OS keyring) instead of clear-text SSH passwords
+- [ ] Backend test suite (pytest + FastAPI TestClient) and ESLint gate in CI
+- [ ] Alembic migrations, optional PostgreSQL for multi-user setups
+- [ ] Live log streaming (`kubectl logs -f`) over WebSocket/SSE
+- [ ] Publish the image to GHCR with SBOM and signature (cosign)
+
+---
+
+## Résumé en français
+
+**console-ictneo** est une console Kubernetes auto-hébergée (**FastAPI + React**) organisée **par projet**. Chaque projet regroupe sa version K8s, son domaine, ses add-ons, ses serveurs cibles, son cluster et ses releases Helm. La console permet :
+
+- de créer des clusters `kind` en local ;
+- d'enrôler n'importe quel cluster distant via un ServiceAccount à droits limités (`register-cluster.sh --role view|edit|admin`) ;
+- de gérer les namespaces ;
+- d'explorer les ressources (describe, scale, delete, exec) ;
+- de générer des manifestes et des charts Helm complets ;
+- d'installer des charts depuis n'importe quel dépôt (`helm upgrade --install` idempotent).
+
+Elle tourne en mode hôte (complet) ou en conteneur non-root. Une analyse d'architecture détaillée est disponible : [docs/ANALYSE.fr.md](docs/ANALYSE.fr.md).
+
+## License
+
+[MIT](LICENSE) © Ghislain Adon
