@@ -109,7 +109,7 @@ type: kubernetes.io/service-account-token
 EOF
 
 # Wait until the controller fills in .data.token (up to 30s).
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   TOKEN_B64="$(kubectl -n "${NS}" get secret "${SECRET}" -o jsonpath='{.data.token}' 2>/dev/null || true)"
   if [[ -n "${TOKEN_B64}" ]]; then
     break
