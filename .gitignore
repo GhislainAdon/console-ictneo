@@ -9,3 +9,19 @@ frontend/dist/
 # Runtime data (SQLite DB, kubeconfigs) — never commit
 data/
 *.db
+
+# Secrets / local env - never commit
+.env
+.env.*
+*.kubeconfig
+kubeconfig*
+*.pem
+*.key
+
+# Logs and junk
+*.log
+linkedin_post*.txt
+.ruff_cache/
+.pytest_cache/
+.idea/
+.vscode/
