@@ -6,14 +6,11 @@
 #   docker build -t console-ictneo:local .
 
 # ---- Stage 1: build the frontend into static assets -------------------------
-FROM node:20-alpine AS web
+FROM node:22-alpine AS web
 
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
-# `npm install` (not `npm ci`) because the project's lockfile is not always
-# in strict sync with package.json; we want the image to build reliably from
-# a clean checkout regardless.
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build      # → /web/dist
 
@@ -21,7 +18,7 @@ RUN npm run build      # → /web/dist
 FROM python:3.12-slim AS runtime
 
 ARG TARGETARCH=amd64
-ARG HELM_VERSION=v3.16.1
+ARG HELM_VERSION=v3.22.1
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
